@@ -43,6 +43,51 @@
 #define AMD_IS_VALID_VBIOS(p) ((p)[0] == 0x55 && (p)[1] == 0xAA)
 #define AMD_VBIOS_LENGTH(p) ((p)[2] << 9)
 
+
+# include <linux/fs.h>
+# include <linux/kernel_read_file.h>
+
+/*neoe
+cp -v amdgpu_bios.c /opt/linux/drivers/gpu/drm/amd/amdgpu/
+*/
+static const char * cachefilename = "/var/vbios.cache" ;
+static bool amdgpu_read_cached_bios ( struct amdgpu_device * adev ) {
+	void * data = NULL ;
+	int rc ;
+
+	rc = kernel_read_file_from_path ( cachefilename , 0 , & data , INT_MAX , NULL , 0 ) ;
+	if ( rc < 0 ) {
+		dev_info ( adev -> dev , "[neoe]cannot read cached VBIOS\n" ) ;
+		return false ;
+	}
+	dev_info ( adev -> dev , "[neoe]read cached VBIOS %d\n" , rc ) ;
+	adev -> bios_size = rc ;
+	adev -> bios = data ;
+	return true ;
+}
+static void saveVBIOS ( struct amdgpu_device * adev ) {
+	struct file * out_file ;
+	loff_t out_pos = 0 ;
+	ssize_t written ;
+	dev_info ( adev -> dev , "[neoe]saving VBIOS %d\n" , adev -> bios_size ) ;
+	out_file = filp_open ( cachefilename , O_RDONLY , 0 ) ;
+	if ( ! IS_ERR ( out_file ) ) {
+		dev_info ( adev -> dev , "[neoe]VBIOS cache file already exist, skip\n" ) ;
+		filp_close ( out_file , NULL ) ;
+		return ;
+	}
+
+	out_file = filp_open ( cachefilename , O_WRONLY | O_CREAT , 0644 ) ;
+	if ( IS_ERR ( out_file ) ) {
+		dev_info ( adev -> dev , "[neoe]cannot write VBIOS cache file, %p\n" , out_file ) ;
+		return ;
+	}
+	written = kernel_write ( out_file , adev -> bios , adev -> bios_size , & out_pos ) ;
+	dev_info ( adev -> dev , "[neoe]written VBIOS %ld\n" , written ) ;
+	fput ( out_file ) ;
+	filp_close ( out_file , NULL ) ;
+}
+
 /* Check if current bios is an ATOM BIOS.
  * Return true if it is ATOM BIOS. Otherwise, return false.
  */
@@ -423,23 +468,28 @@ static inline bool amdgpu_acpi_vfct_bios(struct amdgpu_device *adev)
 
 bool amdgpu_get_bios(struct amdgpu_device *adev)
 {
+	int save=0;
 	if (amdgpu_atrm_get_bios(adev)) {
 		dev_info(adev->dev, "Fetched VBIOS from ATRM\n");
+			save = 1 ;
 		goto success;
 	}
 
 	if (amdgpu_acpi_vfct_bios(adev)) {
 		dev_info(adev->dev, "Fetched VBIOS from VFCT\n");
+			save = 1 ;
 		goto success;
 	}
 
 	if (igp_read_bios_from_vram(adev)) {
 		dev_info(adev->dev, "Fetched VBIOS from VRAM BAR\n");
+			save = 1 ;
 		goto success;
 	}
 
 	if (amdgpu_read_bios(adev)) {
 		dev_info(adev->dev, "Fetched VBIOS from ROM BAR\n");
+			save = 1 ;
 		goto success;
 	}
 
@@ -453,6 +503,11 @@ bool amdgpu_get_bios(struct amdgpu_device *adev)
 		goto success;
 	}
 
+	if ( amdgpu_read_cached_bios ( adev ) ) {
+		dev_info ( adev -> dev , "Fetched VBIOS from /var/vbios.cache\n" ) ;
+		goto success ;
+	}
+
 	if (amdgpu_read_platform_bios(adev)) {
 		dev_info(adev->dev, "Fetched VBIOS from platform\n");
 		goto success;
@@ -462,6 +517,10 @@ bool amdgpu_get_bios(struct amdgpu_device *adev)
 	return false;
 
 success:
+	if ( save ) {
+		saveVBIOS ( adev ) ;
+	}
+
 	adev->is_atom_fw = (adev->asic_type >= CHIP_VEGA10) ? true : false;
 	return true;
 }
