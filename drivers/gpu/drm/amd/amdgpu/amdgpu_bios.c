@@ -51,8 +51,8 @@
 cp -v amdgpu_bios.c /opt/linux/drivers/gpu/drm/amd/amdgpu/
 
 local git [/opt/linux]
-[detached HEAD 15f29e57d6fe] neoe: amdgpu vbios workaround
-
+xxx? [detached HEAD 15f29e57d6fe] neoe: amdgpu vbios workaround
+[detached HEAD 44da7e7dc18b] neoe:amdgui vbios
 */
 static const char * cachefilename = "/var/vbios.cache" ;
 static bool amdgpu_read_cached_bios ( struct amdgpu_device * adev ) {
